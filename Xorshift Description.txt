@@ -1,0 +1,120 @@
+The xorshift random number generator is a simple alogorithm for producing
+sequences of 2^n - 1 integers. Generated sequences are capable of passing
+various tests of randomness.
+
+The algorithm consists of repeatedly xor-ing a computer word with a bit-shifted
+version of itself:
+
+    y ^= (y << a)
+
+Bit-shifts may be left or right and multiple xorshifts may be required to
+generate each number. For example, the following xorshifts will produce a
+2^32 - 1 sequence of numbers:
+
+    static unint32_t y;
+    y ^= (y << 13);
+    y ^= (y >> 17);
+    y ^= (y << 5);
+    return y;
+    
+The variable y must be given an initial non-zero seed value, and the most
+recently generated number must be preserved as a state variable.
+
+The 'trick' with xorshift random number generators is finding a combination of
+
+    1.  type of shifts (left or right)
+    2.  amount of shift (1 bit, 2 bit, 3 bit, 4,...)
+    3.  number of shifts (1 shift, 2 shift, 3 shift, 4,...)
+    4.  order of shifts (left-right, right-left, left-right-left,...)
+    
+that will produce a full 2^n - 1 sequence of numbers.
+
+The mathematical model of a xorshift RNG is a matrix linear transformation:
+
+    y = βT
+    
+Where:
+
+    β,y - a (1 x n) binary row vector (b1, b2, b3,..., bn)
+    T   - is a (n x n) binary matrix
+    n   - number of bits
+    
+The matrices β and T are binary matrices--each matrix element is limited to the
+set {0, 1} and arithmetic is modulus 2. Being modulus 2, multiplication is
+equivalent to bitwise AND (e.g., 1 x 1 = 1, 1 x 0 = 0, 0 x 0 = 1) and addition
+is equivalent to bitwise XOR (0 + 0 = 0, 1 + 0 = 1, 1 + 1 = 0).
+
+Let L be a matrix that performs a left shift:
+
+    | 0 0 0 0 |
+    | 1 0 0 0 |
+    | 0 1 0 0 |
+    | 0 0 1 0 |
+    
+The above example is for a 4-bit word; larger words follow the same form. A left
+shift of 'a' bits can performed using L^a. Adding a binary row vector β to a
+left-shifted version of itself can be accomplished by
+
+    β + β * L^a
+    β (I + L^a)
+    
+Similarly, using a right shift:
+
+    β (I + R^b)
+
+In other words, the transformation (I + L^a) performs a xorshift. Its advantage
+is that bit-shifts and XORs can be performed quickly and easily compared to the
+multiplication or division required by other RNG algorithms.
+    
+Returning to y = βT, the matrix T is some combination of left and right
+xorshifts that will generate a sequence of 2^n - 1 numbers. The example xorshift
+RNG above uses
+
+    T = (I + L^a)(I + R^b)(I + L^c)
+    
+to generate a sequence of 32-bit numbers, where a = 13, b = 17, and c = 5. The
+values of a, b, and c can be determined by testing all combinations of a, b, and
+c (in this case with numbers 1-32). For T to have an order of 2^n - 1 (generate
+a sequence of 2^n -1 integers), then T^n must equal T. All combinations of left 
+and right shifts should be tested as well, e.g.:
+
+    T = (I + L^a)(I + L^b)(I + L^c)
+    T = (I + L^a)(I + L^b)(I + R^c)
+    T = (I + L^a)(I + R^b)(I + L^c)
+    T = (I + L^a)(I + R^b)(I + R^c)
+    etc...
+    
+Not all combinations of shifts will produce a full sequence. From reference 1 we
+know that at least 3 shifts are required for 32-bit numbers; reference 1 also
+gives values for a, b, and c.
+
+Our problem is that it's not easy to find ready-made T matrices for generating
+8- and 16-bit numbers. We'll have to find our own. Some tips:
+
+    1.  It's easiest to treat each matrix row as a single word:
+        
+            unint8_t[8] eight_by_eight_matrix;
+            
+        Each array index is a row in the matrix.
+
+    2.  The L and R bit shift matrices can be created starting with identity
+        matrix. For left shifts, shift each row of the identity matrix to the
+        left one position for each bit shift (or shift right for right shifts).
+        
+    3.  Matrix products can be easily calculated by XOR'ing all of the rows for
+        which the left multiplying vector has a 1. For example:
+        
+                          | 1 0 0 0 |
+            | 1 0 1 0 | * | 0 1 0 0 | = | 0 0 1 0 |
+                          | 1 0 1 0 |
+                          | 0 1 0 1 |
+    
+        The above product is equal to the XOR of rows 1 and 3. Incidently, that
+        matrix accomplishes the translation
+        
+            | 1 0 1 0 | ^= (| 1 0 1 0 | << 2) 
+        
+References:
+
+1.  G. Marsaglia, "Xorshift RNGs," Journal of Statistical Software, vol. 8,
+    no. 14, July, 2003. [Online serial]. Available: https://www.jstatsoft.org/article/view/v008i14. [Accessed Oct. 2, 2017].
